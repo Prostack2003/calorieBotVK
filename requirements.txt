@@ -1,0 +1,4 @@
+sqlalchemy==2.0.23
+thefuzz==0.20.0
+python-dotenv==1.0.1
+vk-api==11.9.9
