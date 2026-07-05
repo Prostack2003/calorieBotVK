@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from config import vk, longpoll, VK_GROUP_ID, user_states
 from vk_api.bot_longpoll import VkBotEventType
 import json
@@ -8,11 +9,12 @@ from keyboards.keyboards import get_main_keyboard, get_cancel_keyboard
 from handlers.onboarding import start_onboarding, handle_onboarding
 from handlers.food import (
     handle_search, handle_selection, handle_selection_from_list,
-    handle_weight, save_custom_product, get_products_list
+    handle_weight, save_custom_product, get_products_list, delete_log_by_id,
+    ask_add_date, handle_date_input 
 )
-from handlers.stats import get_daily_stats, get_or_create_user
+from handlers.stats import get_daily_stats, get_or_create_user, get_daily_logs_for_deletion
 from handlers.faq import get_faq_text
-from handlers.admin import is_admin, get_all_users_stats, get_user_report, get_users_list
+from handlers.admin import is_admin, get_all_users_stats, get_user_report, get_users_list, get_weekly_stats, get_admin_day_detail
 
 print(f"Бот запущен. Группа ID: {VK_GROUP_ID}")
 print("Ожидание сообщений...\n")
@@ -40,23 +42,90 @@ try:
                         send_message(peer_id, result[0], result[1])
                     else:
                         send_message(peer_id, result, get_main_keyboard())
+                
+                elif cmd == 'set_add_date':
+                    try:
+                        target_date = datetime.strptime(pd['date'], '%Y-%m-%d').date()
+                        user_states[user_id] = {'state': 'adding_food', 'add_date': target_date}
+                        send_message(
+                            peer_id,
+                            f"✅ Будем добавлять за {target_date.strftime('%d.%m.%Y')}\n\n"
+                            "Напишите название продукта и вес (например: банан 150г)",
+                            get_main_keyboard()
+                        )
+                    except ValueError:
+                        send_message(peer_id, "❌ Неверный формат даты.", get_main_keyboard())
+
+                elif cmd == 'ask_date_input':
+                    user_states[user_id] = {'state': 'input_date'}
+                    send_message(peer_id, "Введите дату в формате ДД.ММ (например: 05.07):", get_cancel_keyboard())
+                
+                elif cmd == 'week':
+                    result = get_weekly_stats()
+                    if isinstance(result, tuple):
+                        send_message(peer_id, result[0], result[1] if result[1] else get_main_keyboard())
+                    else:
+                        send_message(peer_id, result, get_main_keyboard())
+                
+                elif cmd == 'admin_day_detail':
+                    result = get_admin_day_detail(pd['user_id'], pd['date'])
+                    if isinstance(result, tuple):
+                        send_message(peer_id, result[0], result[1] if result[1] else get_main_keyboard())
+                    else:
+                        send_message(peer_id, result, get_main_keyboard())
+                
+                elif cmd == 'stats_date':
+                    try:
+                        target_date = datetime.strptime(pd['date'], '%Y-%m-%d').date()
+                        result = get_daily_stats(user_id, target_date)
+                        if isinstance(result, tuple):
+                            send_message(peer_id, result[0], result[1])
+                        else:
+                            send_message(peer_id, result, get_main_keyboard())
+                    except ValueError:
+                        send_message(peer_id, "❌ Неверный формат даты.", get_main_keyboard())
+                
+                elif cmd == 'show_delete':
+                    try:
+                        target_date = datetime.strptime(pd['date'], '%Y-%m-%d').date()
+                        result = get_daily_logs_for_deletion(user_id, target_date)
+                        if isinstance(result, tuple):
+                            send_message(peer_id, result[0], result[1])
+                        else:
+                            send_message(peer_id, result, get_main_keyboard())
+                    except ValueError:
+                        send_message(peer_id, "❌ Неверный формат даты.", get_main_keyboard())
+                
+                elif cmd == 'delete_by_id':
+                    delete_log_by_id(user_id, peer_id, pd['log_id'])
+                
                 elif cmd == 'delete':
                     from handlers.food import delete_log
                     delete_log(user_id, peer_id, pd['log_id'])
+                
                 elif cmd == 'select':
                     handle_selection(user_id, peer_id, pd['product'])
+                
                 elif cmd == 'select_from_list':
                     handle_selection_from_list(user_id, peer_id, pd['product_name'])
+                
                 elif cmd == 'manual_input':
                     send_message(peer_id, "Напишите название продукта и вес (например: банан 150г)", get_main_keyboard())
+                
                 elif cmd == 'cancel':
-                    if user_id in user_states: del user_states[user_id]
+                    if user_id in user_states:
+                        del user_states[user_id]
                     send_message(peer_id, "Отменено.", get_main_keyboard())
+                
                 elif cmd == 'add':
-                    result = get_products_list(user_id)
-                    send_message(peer_id, result[0], result[1])
+                    ask_add_date(user_id, peer_id)
+
                 elif cmd == 'faq':
                     send_message(peer_id, get_faq_text(), get_main_keyboard())
+                
+                elif cmd == 'main_menu':
+                    send_message(peer_id, "Главное меню:", get_main_keyboard())
+                
                 elif cmd == 'goals':
                     user = get_or_create_user(user_id)
                     if user['onboarded']:
@@ -66,12 +135,13 @@ try:
                             get_main_keyboard())
                     else:
                         start_onboarding(user_id, peer_id)
+                
                 elif cmd == 'settings':
                     user = get_or_create_user(user_id)
                     if user['onboarded']:
                         gender_text = 'Мужской' if user['gender'] == 'male' else 'Женский'
                         send_message(peer_id, 
-                            f"️ Ваши данные:\n"
+                            f"⚙️ Ваши данные:\n"
                             f"Имя: {user['name']}\nПол: {gender_text}\n"
                             f"Возраст: {user['age']}\nРост: {user['height']} см\n"
                             f"Вес: {user['weight']} кг\nЦель: {user['goal']}\n\n"
@@ -79,19 +149,24 @@ try:
                             get_main_keyboard())
                     else:
                         start_onboarding(user_id, peer_id)
+                
                 elif cmd == 'gender':
                     handle_onboarding(user_id, peer_id, cmd, pd['value'])
+                
                 elif cmd == 'activity':
                     handle_onboarding(user_id, peer_id, cmd, pd['value'])
+                
                 elif cmd == 'goal':
                     handle_onboarding(user_id, peer_id, cmd, pd['value'])
+                
                 continue
             except json.JSONDecodeError:
                 pass
         
         # --- Обработка текста ---
         if text.lower() in ('отмена', 'отменить', 'назад', 'cancel'):
-            if user_id in user_states: del user_states[user_id]
+            if user_id in user_states:
+                del user_states[user_id]
             send_message(peer_id, "Отменено.", get_main_keyboard())
             continue
         
@@ -113,11 +188,25 @@ try:
         # --- Админские команды ---
         if is_admin(user_id):
             if text.lower() == '/stats':
-                send_message(peer_id, get_all_users_stats(), get_main_keyboard())
+                result = get_all_users_stats()
+                if isinstance(result, tuple):
+                    send_message(peer_id, result[0], result[1] if result[1] else get_main_keyboard())
+                else:
+                    send_message(peer_id, result, get_main_keyboard())
                 continue
+            
+            if text.lower() == '/week':
+                result = get_weekly_stats()
+                if isinstance(result, tuple):
+                    send_message(peer_id, result[0], result[1] if result[1] else get_main_keyboard())
+                else:
+                    send_message(peer_id, result, get_main_keyboard())
+                continue
+            
             if text.lower() == '/users':
                 send_message(peer_id, get_users_list(), get_main_keyboard())
                 continue
+            
             if text.lower().startswith('/report'):
                 parts = text.split()
                 if len(parts) < 2:
@@ -128,10 +217,12 @@ try:
                 except ValueError:
                     send_message(peer_id, "❌ ID должен быть числом.", get_main_keyboard())
                 continue
+            
             if text.lower() == '/admin':
                 send_message(peer_id, 
                     "🔐 Админ-панель:\n\n"
-                    "/stats - Общая статистика за сегодня\n"
+                    "/stats - Статистика за сегодня\n"
+                    "/week - Отчет за последние 7 дней\n"
                     "/users - Список всех пользователей\n"
                     "/report <ID> - Детальный отчёт\n"
                     "/admin - Эта справка",
@@ -139,6 +230,11 @@ try:
                 continue
         
         # --- Состояния пользователя ---
+        # Обработка ввода даты вручную
+        if user_id in user_states and user_states[user_id]['state'] == 'input_date':
+            handle_date_input(user_id, peer_id, text)
+            continue
+        
         if user_id in user_states:
             state = user_states[user_id]['state']
             
@@ -164,6 +260,12 @@ try:
                 else:
                     handle_selection(user_id, peer_id, text)
                 continue
+
+            # Состояние добавления еды с выбранной датой
+            if state == 'adding_food':
+                handle_search(user_id, peer_id, text, user_states[user_id].get('add_date'))
+                continue
+            
             if state in ('onboarding_name', 'onboarding_age', 'onboarding_height', 'onboarding_weight'):
                 handle_onboarding(user_id, peer_id, None, text)
                 continue
@@ -184,8 +286,8 @@ try:
             handle_search(user_id, peer_id, text)
 
 except KeyboardInterrupt:
-    print("\nБот остановлен.")
+    print("\n👋 Бот остановлен.")
 except Exception as e:
-    print(f"Критическая ошибка: {e}")
+    print(f"💥 Критическая ошибка: {e}")
     import traceback
     traceback.print_exc()
