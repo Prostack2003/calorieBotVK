@@ -1,3 +1,4 @@
+import re
 from thefuzz import process, fuzz
 from sqlalchemy.orm import Session
 from database.models import GlobalProduct, UserProduct
@@ -81,6 +82,7 @@ def search_products(query: str, user_id: int, session: Session, limit: int = 5, 
     
     return unique_results[:limit]
 
+
 def extract_weight_from_text(text: str) -> float:
     """
     Извлечение веса из текста пользователя
@@ -93,8 +95,6 @@ def extract_weight_from_text(text: str) -> float:
     Returns:
         Вес в граммах или None, если не найден
     """
-    import re
-    
     # Паттерн для поиска числа с "г", "гр", "грамм"
     patterns = [
         r'(\d+(?:\.\d+)?)\s*(?:г|гр|грамм|gram)',
@@ -107,3 +107,4 @@ def extract_weight_from_text(text: str) -> float:
             return float(match.group(1))
     
     return None
+
