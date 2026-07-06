@@ -7,12 +7,23 @@ from keyboards.keyboards import (
     get_activity_keyboard, get_goal_keyboard, get_main_keyboard
 )
 
+
+def get_goal_text(goal_key):
+    """Возвращает название цели на русском"""
+    return {
+        'lose': 'Похудение',
+        'maintain': 'Поддержание',
+        'gain': 'Набор массы'
+    }.get(goal_key, goal_key)
+
+
 def start_onboarding(user_id, peer_id):
     user_states[user_id] = {'state': 'onboarding_name'}
     send_message(peer_id, 
-        "🎯 Давайте настроим вашу норму КБЖУ!\n\n"
+        "🎯 Давайте познакомимся!\n\n"
         "Как вас зовут?",
         get_cancel_keyboard())
+
 
 def handle_onboarding(user_id, peer_id, cmd, value):
     if user_id not in user_states:
@@ -33,13 +44,14 @@ def handle_onboarding(user_id, peer_id, cmd, value):
     elif state == 'onboarding_age':
         try:
             age = int(value)
-            if age < 10 or age > 100:
+            # ИСПРАВЛЕНИЕ #12: Минимальный возраст — 18 лет
+            if age < 18 or age > 100:
                 raise ValueError
             user_states[user_id]['age'] = age
             user_states[user_id]['state'] = 'onboarding_height'
             send_message(peer_id, "Введите ваш рост (см):", get_cancel_keyboard())
         except ValueError:
-            send_message(peer_id, "Введите число от 10 до 100:", get_cancel_keyboard())
+            send_message(peer_id, "Введите число от 18 до 100:", get_cancel_keyboard())
             
     elif state == 'onboarding_height':
         try:
@@ -102,7 +114,8 @@ def handle_onboarding(user_id, peer_id, cmd, value):
             
             session.commit()
             
-            goal_text = {'lose': 'Похудение', 'maintain': 'Поддержание', 'gain': 'Набор массы'}[user_states[user_id]['goal']]
+            # ИСПРАВЛЕНИЕ #6: Перевод цели на русский
+            goal_text = get_goal_text(user_states[user_id]['goal'])
             
             msg = (f"✅ Настройка завершена!\n\n"
                    f"🎯 Ваша суточная норма:\n"

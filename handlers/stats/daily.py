@@ -24,6 +24,7 @@ def get_stats_navigation_keyboard(current_date, has_logs=True):
     return json.dumps({"one_time": True, "buttons": buttons}, ensure_ascii=False)
 
 def get_daily_stats(user_id, target_date=None):
+    """Статистика за выбранную дату (по умолчанию — сегодня)"""
     if target_date is None:
         target_date = date.today()
     
@@ -36,7 +37,10 @@ def get_daily_stats(user_id, target_date=None):
         ).order_by(DailyLog.created_at).all()
         
         if not logs:
-            msg = f"📅 {target_date.strftime('%d.%m.%Y')}\n\nНичего не добавлено в этот день. 🍽"
+            msg = f"📅 {target_date.strftime('%d.%m.%Y')}\n\n"
+            msg += "━━━━━━━━━━━━━━━━━━━━━\n\n"
+            msg += "🍽 Ничего не добавлено в этот день.\n\n"
+            msg += "━━━━━━━━━━━━━━━━━━━━━"
             keyboard = get_stats_navigation_keyboard(target_date, has_logs=False)
             return msg, keyboard
         
@@ -45,30 +49,63 @@ def get_daily_stats(user_id, target_date=None):
         total_f = round(sum(l.fats for l in logs), 1)
         total_carb = round(sum(l.carbs for l in logs), 1)
         
-        msg = f"📊 Статистика за {target_date.strftime('%d.%m.%Y')}:\n\n"
-        msg += f"🔥 Ккал: {total_c} | 🥩 Б: {total_p} |  Ж: {total_f} | 🍞 У: {total_carb}\n\n"
+        # ИСПРАВЛЕНИЕ #7: Структурированное форматирование
+        msg = f"📊 Статистика за {target_date.strftime('%d.%m.%Y')}\n\n"
+        msg += "━━━━━━━━━━━━━━━━━━━━━\n\n"
         
-        msg += "📝 Добавлено:\n"
-        for i, log in enumerate(logs, 1):
-            msg += f"{i}. {log.product_name} - {log.weight}г ({round(log.calories, 1)} ккал)\n"
+        # Блок 1: Итоги дня
+        msg += f"🔥 Калории: {total_c} ккал\n"
+        msg += f"🥩 Белки: {total_p}г\n"
+        msg += f"🥑 Жиры: {total_f}г\n"
+        msg += f"🍞 Углеводы: {total_carb}г\n\n"
         
-        msg += f"\nВсего приёмов пищи: {len(logs)}"
-        
+        # Блок 2: Прогресс к цели
         if user and user.daily_calories:
             remaining = round(user.daily_calories - total_c)
             percent = min(100, round((total_c / user.daily_calories) * 100))
             
-            msg += f"\n\n🎯 Цель: {round(user.daily_calories)} ккал"
-            msg += f"\n📈 Выполнено: {percent}%"
-            msg += f"\n{'✅' if remaining >= 0 else '⚠️'} Осталось: {abs(remaining)} ккал"
+            msg += "━━━━━━━━━━━━━━━━━━━━━\n\n"
+            msg += f"🎯 Цель: {round(user.daily_calories)} ккал\n"
+            msg += f"📈 Выполнено: {percent}%\n"
+            
+            # ИСПРАВЛЕНИЕ #14: Разные сообщения для "осталось" и "превышение"
+            if remaining >= 0:
+                msg += f"✅ Осталось: {remaining} ккал\n"
+            else:
+                msg += f"⚠️ Превышение: {abs(remaining)} ккал\n"
             
             if user.daily_proteins:
                 p_pct = min(100, round((total_p / user.daily_proteins) * 100))
                 f_pct = min(100, round((total_f / user.daily_fats) * 100))
                 c_pct = min(100, round((total_carb / user.daily_carbs) * 100))
-                msg += f"\n\n🥩 Белки: {p_pct}% ({total_p}/{round(user.daily_proteins, 1)}г)"
-                msg += f"\n🥑 Жиры: {f_pct}% ({total_f}/{round(user.daily_fats, 1)}г)"
-                msg += f"\n🍞 Углеводы: {c_pct}% ({total_carb}/{round(user.daily_carbs, 1)}г)"
+                
+                msg += f"\n🥩 Белки: {p_pct}% ({total_p}/{round(user.daily_proteins, 1)}г)\n"
+                msg += f"🥑 Жиры: {f_pct}% ({total_f}/{round(user.daily_fats, 1)}г)\n"
+                msg += f"🍞 Углеводы: {c_pct}% ({total_carb}/{round(user.daily_carbs, 1)}г)\n"
+        
+                # Блок 3: Список продуктов (табличный стиль)
+                msg += "\n━━━━━━━━━━━━━━━━━━━━━\n\n"
+                msg += f"📝 Добавлено продуктов ({len(logs)}):\n\n"
+                
+                # ИСПРАВЛЕНИЕ #7: Табличный стиль
+                # Определяем максимальную длину названия для выравнивания
+                max_name_len = max(len(log.product_name) for log in logs)
+                max_name_len = min(max_name_len, 25)  # Ограничение 25 символов
+                
+                for i, log in enumerate(logs, 1):
+                    # Обрезаем длинные названия
+                    name = log.product_name
+                    if len(name) > 25:
+                        name = name[:22] + "..."
+                    
+                    # Выравнивание через ljust
+                    name_padded = name.ljust(max_name_len)
+                    weight_str = f"{log.weight}г".rjust(6)
+                    cal_str = f"{round(log.calories, 1)} ккал"
+                    
+                    msg += f"{i}. {name_padded} {weight_str} 🔥{cal_str}\n"
+                
+                msg += "\n━━━━━━━━━━━━━━━━━━━━━"
         
         keyboard = get_stats_navigation_keyboard(target_date, has_logs=True)
         

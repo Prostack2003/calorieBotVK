@@ -3,6 +3,19 @@ venv/
 env/
 ENV/
 
+# База данных
+*.db
+*.sqlite
+*.sqlite3
+
+# Логи
+*.log
+logs/
+
+# Бэкапы
+*.backup
+*.bak
+
 # Секретные данные
 .env
 

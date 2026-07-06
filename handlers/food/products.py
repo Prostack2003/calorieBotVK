@@ -49,7 +49,7 @@ def get_date_selection_keyboard():
                 {"action": {"type": "text", "label": "◀️ Вчера", "payload": json.dumps({"cmd": "set_add_date", "date": yesterday.strftime('%Y-%m-%d')})}, "color": "secondary"}
             ],
             [
-                {"action": {"type": "text", "label": " Выбрать дату", "payload": "{\"cmd\":\"ask_date_input\"}"}, "color": "secondary"}
+                {"action": {"type": "text", "label": "📅 Выбрать дату", "payload": "{\"cmd\":\"ask_date_input\"}"}, "color": "secondary"}
             ]
         ]
     }, ensure_ascii=False)
@@ -57,26 +57,32 @@ def get_date_selection_keyboard():
     return keyboard
 
 def ask_add_date(user_id, peer_id):
+    """Спросить дату для добавления еды"""
     user_states[user_id] = {'state': 'ask_add_date'}
     send_message(
         peer_id,
-        " За какую дату добавляем еду?\n\n"
-        "Или напишите дату в формате ДД.ММ (например: 05.07)",
+        "📅 За какую дату добавляем еду?\n\n"
+        "Нажмите одну из трех кнопок для выбора даты",
         get_date_selection_keyboard()
     )
 
 def handle_date_input(user_id, peer_id, text):
+    """Обработка ввода даты вручную"""
     try:
+        # Пробуем разные форматы
         for fmt in ['%d.%m', '%d.%m.%Y', '%d/%m', '%d/%m/%Y']:
             try:
                 parsed_date = datetime.strptime(text, fmt).date()
+                # Если год не указан, используем текущий
                 if parsed_date.year == 1900:
                     parsed_date = parsed_date.replace(year=date.today().year)
                 
+                # Проверяем, что дата не в будущем
                 if parsed_date > date.today():
-                    send_message(peer_id, "Нельзя добавить еду в будущее. Выберите дату сегодня или раньше.", get_main_keyboard())
+                    send_message(peer_id, "❌ Нельзя добавить еду в будущее. Выберите дату сегодня или раньше.", get_main_keyboard())
                     return
                 
+                # Сохраняем дату в состоянии
                 user_states[user_id] = {'state': 'adding_food', 'add_date': parsed_date}
                 send_message(
                     peer_id,
@@ -88,7 +94,9 @@ def handle_date_input(user_id, peer_id, text):
             except ValueError:
                 continue
         
-        send_message(peer_id, "❌ Неверный формат. Используйте ДД.ММ (например: 05.07)", get_main_keyboard())
+        send_message(peer_id, "❌ Неверный формат. Используйте ДД.ММ или ДД.ММ.ГГГГ (например: 05.07 или 05.07.2025)", get_main_keyboard())
         
     except Exception as e:
         send_message(peer_id, "❌ Ошибка обработки даты.", get_main_keyboard())
+
+        
