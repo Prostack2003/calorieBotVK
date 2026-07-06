@@ -1,11 +1,12 @@
 import random
 import time
+import os
 from config import vk
 from utils.logger import logger
 
 
 def get_random_id():
-    """Генерация уникального ID для сообщения (чтобы ВК не дублировал)"""
+    """Генерация уникального ID для сообщения"""
     return int(time.time() * 1000) + random.randint(0, 999)
 
 
@@ -29,6 +30,52 @@ def send_message(peer_id, message, keyboard=None):
     except Exception as e:
         logger.error(f"❌ Ошибка отправки сообщения пользователю {peer_id}: {e}")
         print(f"Ошибка отправки: {e}")
+
+
+def send_document(peer_id, filepath, message=""):
+    """Отправка документа пользователю"""
+    try:
+        if not os.path.exists(filepath):
+            logger.error(f"❌ Файл не найден: {filepath}")
+            return False
+        
+        # Получаем URL для загрузки
+        upload_url = vk.docs.getMessagesUploadServer(type='doc', peer_id=peer_id)['upload_url']
+        
+        # Загружаем файл
+        import requests
+        with open(filepath, 'rb') as file:
+            response = requests.post(upload_url, files={'file': file})
+            file_data = response.json()
+        
+        # Сохраняем документ
+        doc = vk.docs.save(file=file_data['file'], title=os.path.basename(filepath))['doc']
+        
+        # Формируем attachment
+        attachment = f"doc{doc['owner_id']}_{doc['id']}"
+        
+        # Отправляем сообщение с документом
+        vk.messages.send(
+            peer_id=peer_id,
+            message=message,
+            attachment=attachment,
+            random_id=get_random_id()
+        )
+        
+        logger.info(f"📄 Документ отправлен: {filepath}")
+        
+        # Удаляем файл после отправки
+        try:
+            os.remove(filepath)
+            logger.debug(f"🗑️ Файл удалён: {filepath}")
+        except Exception as e:
+            logger.warning(f"Не удалось удалить файл {filepath}: {e}")
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка отправки документа: {e}", exc_info=True)
+        return False
 
 
 def notify_admin(user_id, user_name, action_text):

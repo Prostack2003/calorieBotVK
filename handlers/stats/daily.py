@@ -10,14 +10,18 @@ def get_stats_navigation_keyboard(current_date, has_logs=True):
     buttons = []
     
     nav_row = [
-        {"action": {"type": "text", "label": "️ Вчера", "payload": json.dumps({"cmd": "stats_date", "date": yesterday.strftime('%Y-%m-%d')})}, "color": "secondary"},
+        {"action": {"type": "text", "label": "⬅️ Вчера", "payload": json.dumps({"cmd": "stats_date", "date": yesterday.strftime('%Y-%m-%d')})}, "color": "secondary"},
         {"action": {"type": "text", "label": "📅 Сегодня" if current_date != today else "✅ Сегодня", "payload": json.dumps({"cmd": "stats_date", "date": today.strftime('%Y-%m-%d')})}, "color": "primary" if current_date == today else "secondary"},
-        {"action": {"type": "text", "label": "Завтра ▶️", "payload": json.dumps({"cmd": "stats_date", "date": tomorrow.strftime('%Y-%m-%d')})}, "color": "secondary"}
+        {"action": {"type": "text", "label": "Завтра ➡️", "payload": json.dumps({"cmd": "stats_date", "date": tomorrow.strftime('%Y-%m-%d')})}, "color": "secondary"}
     ]
     buttons.append(nav_row)
     
     if has_logs and current_date <= today:
         buttons.append([{"action": {"type": "text", "label": "🗑 Удалить запись", "payload": json.dumps({"cmd": "show_delete", "date": current_date.strftime('%Y-%m-%d')})}, "color": "negative"}])
+    
+    # ИСПРАВЛЕНИЕ: Кнопка экспорта PDF
+    if has_logs:
+        buttons.append([{"action": {"type": "text", "label": "📥 Экспорт PDF", "payload": json.dumps({"cmd": "export_pdf", "date": current_date.strftime('%Y-%m-%d')})}, "color": "primary"}])
     
     buttons.append([{"action": {"type": "text", "label": "В главное меню", "payload": "{\"cmd\":\"main_menu\"}"}, "color": "secondary"}])
     

@@ -1,17 +1,19 @@
-from datetime import datetime
+from datetime import datetime, date
 from config import user_states
 from database import SessionLocal, User
 from utils.messenger import send_message
 from keyboards.keyboards import (
     get_main_keyboard, get_cancel_keyboard,
-    get_settings_keyboard, get_confirm_reset_keyboard
+    get_settings_keyboard_v2, get_confirm_reset_keyboard
 )
+from handlers.export import generate_user_report_pdf
 from handlers.onboarding import start_onboarding, handle_onboarding
 from handlers.food import (
     handle_search, handle_selection, handle_selection_from_list,
     handle_weight, save_custom_product, delete_log_by_id,
     ask_add_date, handle_date_input,
-    get_user_products_list, delete_user_product, confirm_delete_user_product
+    get_user_products_list, delete_user_product, confirm_delete_user_product,
+    confirm_save_custom_product, edit_custom_kbju, cancel_custom_product
 )
 from handlers.stats import get_daily_stats, get_or_create_user, get_daily_logs_for_deletion
 from handlers.faq import get_faq_text
@@ -21,16 +23,8 @@ from handlers.admin import (
 )
 
 
-# ============================================
-# ИСПРАВЛЕНИЕ #13: Проверка наличия профиля
-# ============================================
-
 def require_profile(user_id, peer_id):
-    """
-    Проверяет, прошёл ли пользователь онбординг.
-    Возвращает True, если профиль настроен.
-    Если нет — отправляет сообщение и запускает онбординг, возвращает False.
-    """
+    """Проверяет, прошёл ли пользователь онбординг."""
     user = get_or_create_user(user_id)
     if not user['onboarded']:
         send_message(
@@ -44,10 +38,6 @@ def require_profile(user_id, peer_id):
     return True
 
 
-# ============================================
-# ИСПРАВЛЕНИЕ #6: Функция перевода цели
-# ============================================
-
 def get_goal_text(goal_key):
     """Возвращает название цели на русском"""
     return {
@@ -57,13 +47,10 @@ def get_goal_text(goal_key):
     }.get(goal_key, goal_key)
 
 
-# ============================================
-
-
 def route_payload(user_id, peer_id, payload_data):
     """Обработка нажатий кнопок (payload)"""
 
-    # === Обработка кнопки "Начать" (первый запуск) ===
+    # Кнопка "Начать" (первый запуск)
     if payload_data.get('command') == 'start':
         user = get_or_create_user(user_id)
         if user['onboarded']:
@@ -79,12 +66,11 @@ def route_payload(user_id, peer_id, payload_data):
 
     cmd = payload_data.get('cmd')
 
-    # --- Команды статистики (требуют профиль) ---
+    # --- Статистика ---
     if cmd == 'stats':
         if not require_profile(user_id, peer_id):
             return
-        result = get_daily_stats(user_id)
-        send_result(peer_id, result)
+        send_result(peer_id, get_daily_stats(user_id))
         return
 
     if cmd == 'stats_date':
@@ -92,8 +78,7 @@ def route_payload(user_id, peer_id, payload_data):
             return
         try:
             target_date = datetime.strptime(payload_data['date'], '%Y-%m-%d').date()
-            result = get_daily_stats(user_id, target_date)
-            send_result(peer_id, result)
+            send_result(peer_id, get_daily_stats(user_id, target_date))
         except ValueError:
             send_message(peer_id, "❌ Неверный формат даты.", get_main_keyboard())
         return
@@ -103,18 +88,40 @@ def route_payload(user_id, peer_id, payload_data):
             return
         try:
             target_date = datetime.strptime(payload_data['date'], '%Y-%m-%d').date()
-            result = get_daily_logs_for_deletion(user_id, target_date)
-            send_result(peer_id, result)
+            send_result(peer_id, get_daily_logs_for_deletion(user_id, target_date))
         except ValueError:
             send_message(peer_id, "❌ Неверный формат даты.", get_main_keyboard())
         return
 
-    # --- Команды удаления ---
+        # --- Экспорт PDF ---
+    if cmd == 'export_pdf':
+        if not require_profile(user_id, peer_id):
+            return
+        try:
+            target_date = datetime.strptime(payload_data['date'], '%Y-%m-%d').date()
+            filepath = generate_user_report_pdf(user_id, target_date, target_date)
+            
+            if filepath:
+                # Отправляем документ через ВК API
+                from config import vk
+                from utils.messenger import send_document
+                
+                send_document(peer_id, filepath, "📄 Ваш отчёт по питанию")
+                send_message(peer_id, "✅ PDF отправлен!", get_main_keyboard())
+            else:
+                send_message(peer_id, "❌ Не удалось создать отчёт. Возможно, нет данных за этот день.", get_main_keyboard())
+        except Exception as e:
+            from utils.logger import logger
+            logger.error(f"Ошибка экспорта PDF: {e}", exc_info=True)
+            send_message(peer_id, f"❌ Ошибка создания отчёта: {e}", get_main_keyboard())
+        return
+
+    # --- Удаление записей ---
     if cmd == 'delete_by_id':
         delete_log_by_id(user_id, peer_id, payload_data['log_id'])
         return
 
-    # --- Команды добавления еды (требуют профиль) ---
+    # --- Добавление еды ---
     if cmd == 'add':
         if not require_profile(user_id, peer_id):
             return
@@ -127,12 +134,10 @@ def route_payload(user_id, peer_id, payload_data):
         try:
             target_date = datetime.strptime(payload_data['date'], '%Y-%m-%d').date()
             user_states[user_id] = {'state': 'adding_food', 'add_date': target_date}
-            send_message(
-                peer_id,
+            send_message(peer_id,
                 f"✅ Будем добавлять за {target_date.strftime('%d.%m.%Y')}\n\n"
                 "Напишите название продукта и вес (например: банан 150г)",
-                get_main_keyboard()
-            )
+                get_main_keyboard())
         except ValueError:
             send_message(peer_id, "❌ Неверный формат даты.", get_main_keyboard())
         return
@@ -160,16 +165,14 @@ def route_payload(user_id, peer_id, payload_data):
 
     # --- Админские команды ---
     if cmd == 'week':
-        result = get_weekly_stats()
-        send_result(peer_id, result)
+        send_result(peer_id, get_weekly_stats())
         return
 
     if cmd == 'admin_day_detail':
-        result = get_admin_day_detail(payload_data['user_id'], payload_data['date'])
-        send_result(peer_id, result)
+        send_result(peer_id, get_admin_day_detail(payload_data['user_id'], payload_data['date']))
         return
 
-    # --- Прочие команды ---
+    # --- Навигация ---
     if cmd == 'cancel':
         if user_id in user_states:
             del user_states[user_id]
@@ -181,6 +184,8 @@ def route_payload(user_id, peer_id, payload_data):
         return
 
     if cmd == 'main_menu':
+        if user_id in user_states:
+            del user_states[user_id]
         send_message(peer_id, "Главное меню:", get_main_keyboard())
         return
 
@@ -198,15 +203,13 @@ def route_payload(user_id, peer_id, payload_data):
             get_main_keyboard())
         return
 
-    # ИСПРАВЛЕНИЕ #11: Настройки с кнопкой сброса
+    # --- Настройки и сброс профиля ---
     if cmd == 'settings':
         if not require_profile(user_id, peer_id):
             return
         user = get_or_create_user(user_id)
         gender_text = 'Мужской' if user['gender'] == 'male' else 'Женский'
         goal_text = get_goal_text(user['goal'])
-        
-        from keyboards.keyboards import get_settings_keyboard_v2
         send_message(peer_id,
             f"⚙️ Ваши данные:\n"
             f"Имя: {user['name']}\nПол: {gender_text}\n"
@@ -215,7 +218,6 @@ def route_payload(user_id, peer_id, payload_data):
             get_settings_keyboard_v2())
         return
 
-    # ИСПРАВЛЕНИЕ #11: Сброс профиля через кнопку с подтверждением
     if cmd == 'reset_profile':
         if not require_profile(user_id, peer_id):
             return
@@ -244,24 +246,42 @@ def route_payload(user_id, peer_id, payload_data):
     if cmd == 'confirm_reset_no':
         send_message(peer_id, "Отменено. Возвращаемся в главное меню.", get_main_keyboard())
         return
-    
+
+    # --- Мои продукты ---
     if cmd == 'my_products':
         if not require_profile(user_id, peer_id):
             return
-        result = get_user_products_list(user_id)
-        send_result(peer_id, result)
+        send_result(peer_id, get_user_products_list(user_id))
         return
-    
+
     if cmd == 'delete_my_product':
         if not require_profile(user_id, peer_id):
             return
         delete_user_product(user_id, peer_id, payload_data['product_id'])
         return
-    
+
     if cmd == 'confirm_delete_product_yes':
         if not require_profile(user_id, peer_id):
             return
         confirm_delete_user_product(user_id, peer_id, payload_data['product_id'])
+        return
+
+    # --- Подтверждение КБЖУ своего продукта ---
+    if cmd == 'confirm_custom_yes':
+        confirm_save_custom_product(user_id, peer_id)
+        return
+
+    if cmd == 'confirm_custom_edit':
+        edit_custom_kbju(user_id, peer_id)
+        return
+
+    if cmd == 'confirm_custom_cancel':
+        cancel_custom_product(user_id, peer_id)
+        return
+
+    # --- Дисклеймер ---
+    if cmd == 'start_onboarding':
+        handle_onboarding(user_id, peer_id, 'disclaimer', None)
         return
 
     # --- Онбординг ---
@@ -272,47 +292,60 @@ def route_payload(user_id, peer_id, payload_data):
 
 def route_text(user_id, peer_id, text):
     """Обработка текстовых команд"""
-    # --- Отмена ---
+
+    # Отмена
     if text.lower() in ('отмена', 'отменить', 'назад', 'cancel'):
         if user_id in user_states:
             del user_states[user_id]
         send_message(peer_id, "Отменено.", get_main_keyboard())
         return
 
-    # --- Админские команды ---
+    # Админские команды
     if is_admin(user_id) and route_admin_commands(user_id, peer_id, text):
         return
 
-    # --- Команда /start ---
+    # /start
     if text.lower() in ('/start', 'старт', 'начать'):
         user = get_or_create_user(user_id)
         if user['onboarded']:
             user_name = user['name'] if user['name'] else ""
             greeting = f"Привет, {user_name}!" if user_name else "Привет!"
-            send_message(peer_id, f"{greeting} Я бот для подсчета КБЖУ.\nНапиши продукт и вес (банан 150г) или нажми кнопки.", get_main_keyboard())
+            send_message(peer_id,
+                f"{greeting} Я бот для подсчета КБЖУ.\n"
+                "Напиши продукт и вес (банан 150г) или нажми кнопки.",
+                get_main_keyboard())
         else:
             start_onboarding(user_id, peer_id)
         return
 
-    # ИСПРАВЛЕНИЕ #11: Команда "сбросить профиль" больше не работает через текст
-    # Теперь сброс только через кнопку в настройках с подтверждением
-
-    # --- Состояния пользователя (онбординг разрешён всегда) ---
+    # Состояния пользователя
     if user_id in user_states:
         state = user_states[user_id]['state']
+
+        # Онбординг
         if state in ('onboarding_name', 'onboarding_age', 'onboarding_height', 'onboarding_weight'):
             handle_onboarding(user_id, peer_id, None, text)
             return
 
-    # --- Для остальных действий нужен профиль ---
+        # Подтверждение КБЖУ
+        if state == 'confirm_custom':
+            send_message(peer_id,
+                "Используйте кнопки выше:\n"
+                "✅ Всё верно, сохранить\n"
+                "✏️ Ввести заново\n"
+                "❌ Отмена",
+                get_cancel_keyboard())
+            return
+
+    # Для остальных действий нужен профиль
     if not require_profile(user_id, peer_id):
         return
 
-    # --- Состояния пользователя (остальные) ---
+    # Состояния пользователя (остальные)
     if route_user_states(user_id, peer_id, text):
         return
 
-    # --- Поиск продукта ---
+    # Поиск продукта
     if text:
         handle_search(user_id, peer_id, text)
 
@@ -320,13 +353,11 @@ def route_text(user_id, peer_id, text):
 def route_admin_commands(user_id, peer_id, text):
     """Обработка админских команд. Возвращает True, если команда обработана."""
     if text.lower() == '/stats':
-        result = get_all_users_stats()
-        send_result(peer_id, result)
+        send_result(peer_id, get_all_users_stats())
         return True
 
     if text.lower() == '/week':
-        result = get_weekly_stats()
-        send_result(peer_id, result)
+        send_result(peer_id, get_weekly_stats())
         return True
 
     if text.lower() == '/users':
@@ -399,7 +430,6 @@ def route_user_states(user_id, peer_id, text):
         handle_search(user_id, peer_id, text, user_states[user_id].get('add_date'))
         return True
 
-    # Состояния онбординга обрабатываются отдельно (выше)
     return False
 
 

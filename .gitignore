@@ -3,6 +3,9 @@ venv/
 env/
 ENV/
 
+# Экспортированные PDF
+exports/
+
 # База данных
 *.db
 *.sqlite
