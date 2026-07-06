@@ -32,52 +32,100 @@ def send_message(peer_id, message, keyboard=None):
         print(f"Ошибка отправки: {e}")
 
 
-def send_document(peer_id, filepath, message=""):
-    """Отправка документа пользователю"""
-    try:
-        if not os.path.exists(filepath):
-            logger.error(f"❌ Файл не найден: {filepath}")
-            return False
-        
-        # Получаем URL для загрузки
-        upload_url = vk.docs.getMessagesUploadServer(type='doc', peer_id=peer_id)['upload_url']
-        
-        # Загружаем файл
-        import requests
-        with open(filepath, 'rb') as file:
-            response = requests.post(upload_url, files={'file': file})
-            file_data = response.json()
-        
-        # Сохраняем документ
-        doc = vk.docs.save(file=file_data['file'], title=os.path.basename(filepath))['doc']
-        
-        # Формируем attachment
-        attachment = f"doc{doc['owner_id']}_{doc['id']}"
-        
-        # Отправляем сообщение с документом
-        vk.messages.send(
-            peer_id=peer_id,
-            message=message,
-            attachment=attachment,
-            random_id=get_random_id()
-        )
-        
-        logger.info(f"📄 Документ отправлен: {filepath}")
-        
-        # Удаляем файл после отправки
+def send_document(peer_id, filepath, message="", max_retries=3):
+    """Отправка документа пользователю с повторными попытками"""
+    import requests
+    import time
+    
+    for attempt in range(1, max_retries + 1):
         try:
-            os.remove(filepath)
-            logger.debug(f"🗑️ Файл удалён: {filepath}")
+            if not os.path.exists(filepath):
+                logger.error(f"❌ Файл не найден: {filepath}")
+                return False
+            
+            filename = os.path.basename(filepath)
+            logger.info(f"📄 Загрузка документа (попытка {attempt}/{max_retries}): {filename}")
+            
+            # Получаем СВЕЖИЙ URL для загрузки (каждый раз новый!)
+            upload_server = vk.docs.getMessagesUploadServer(type='doc', peer_id=peer_id)
+            upload_url = upload_server['upload_url']
+            
+            # Загружаем файл
+            with open(filepath, 'rb') as file:
+                response = requests.post(
+                    upload_url, 
+                    files={'file': (filename, file, 'application/pdf')},
+                    timeout=30
+                )
+            
+            # Проверяем статус
+            if response.status_code == 405:
+                logger.warning(f"⚠️ HTTP 405 (попытка {attempt}/{max_retries}). Ждём 2 секунды...")
+                time.sleep(2)
+                continue
+            
+            if response.status_code != 200:
+                logger.error(f"❌ Ошибка загрузки: HTTP {response.status_code}")
+                if attempt < max_retries:
+                    time.sleep(2)
+                    continue
+                return False
+            
+            # Парсим ответ
+            try:
+                file_data = response.json()
+            except Exception as e:
+                logger.error(f"❌ Ошибка парсинга ответа: {e}")
+                if attempt < max_retries:
+                    time.sleep(2)
+                    continue
+                return False
+            
+            if 'file' not in file_data:
+                logger.error(f"❌ В ответе нет поля 'file': {file_data}")
+                if attempt < max_retries:
+                    time.sleep(2)
+                    continue
+                return False
+            
+            # Сохраняем документ
+            save_result = vk.docs.save(file=file_data['file'], title=filename)
+            
+            if 'doc' not in save_result:
+                logger.error(f"❌ Ошибка сохранения документа: {save_result}")
+                return False
+            
+            doc = save_result['doc']
+            attachment = f"doc{doc['owner_id']}_{doc['id']}"
+            
+            # Отправляем сообщение с документом
+            vk.messages.send(
+                peer_id=peer_id,
+                message=message,
+                attachment=attachment,
+                random_id=get_random_id()
+            )
+            
+            logger.info(f"✅ Документ отправлен: {filename}")
+            
+            # Удаляем файл после отправки
+            try:
+                os.remove(filepath)
+                logger.debug(f"🗑️ Файл удалён: {filepath}")
+            except Exception as e:
+                logger.warning(f"Не удалось удалить файл {filepath}: {e}")
+            
+            return True
+            
         except Exception as e:
-            logger.warning(f"Не удалось удалить файл {filepath}: {e}")
+            logger.error(f"❌ Ошибка отправки документа (попытка {attempt}/{max_retries}): {e}", exc_info=True)
+            if attempt < max_retries:
+                time.sleep(2)
+                continue
+    
+    logger.error(f"❌ Не удалось отправить документ после {max_retries} попыток")
+    return False
         
-        return True
-        
-    except Exception as e:
-        logger.error(f"❌ Ошибка отправки документа: {e}", exc_info=True)
-        return False
-
-
 def notify_admin(user_id, user_name, action_text):
     """Уведомление администратора о действиях пользователя"""
     from config import ADMIN_ID

@@ -6,7 +6,6 @@ from keyboards.keyboards import (
     get_main_keyboard, get_cancel_keyboard,
     get_settings_keyboard_v2, get_confirm_reset_keyboard
 )
-from handlers.export import generate_user_report_pdf
 from handlers.onboarding import start_onboarding, handle_onboarding
 from handlers.food import (
     handle_search, handle_selection, handle_selection_from_list,
@@ -21,6 +20,7 @@ from handlers.admin import (
     is_admin, get_all_users_stats, get_user_report,
     get_users_list, get_weekly_stats, get_admin_day_detail
 )
+from handlers.export import generate_user_report_pdf, generate_admin_report_pdf
 
 
 def require_profile(user_id, peer_id):
@@ -45,6 +45,19 @@ def get_goal_text(goal_key):
         'maintain': 'Поддержание',
         'gain': 'Набор массы'
     }.get(goal_key, goal_key)
+
+
+def _parse_date(date_str):
+    """Парсинг даты из строки ДД.ММ или ДД.ММ.ГГГГ"""
+    for fmt in ['%d.%m.%Y', '%d.%m']:
+        try:
+            d = datetime.strptime(date_str, fmt).date()
+            if d.year == 1900:
+                d = d.replace(year=date.today().year)
+            return d
+        except ValueError:
+            continue
+    return None
 
 
 def route_payload(user_id, peer_id, payload_data):
@@ -91,29 +104,6 @@ def route_payload(user_id, peer_id, payload_data):
             send_result(peer_id, get_daily_logs_for_deletion(user_id, target_date))
         except ValueError:
             send_message(peer_id, "❌ Неверный формат даты.", get_main_keyboard())
-        return
-
-        # --- Экспорт PDF ---
-    if cmd == 'export_pdf':
-        if not require_profile(user_id, peer_id):
-            return
-        try:
-            target_date = datetime.strptime(payload_data['date'], '%Y-%m-%d').date()
-            filepath = generate_user_report_pdf(user_id, target_date, target_date)
-            
-            if filepath:
-                # Отправляем документ через ВК API
-                from config import vk
-                from utils.messenger import send_document
-                
-                send_document(peer_id, filepath, "📄 Ваш отчёт по питанию")
-                send_message(peer_id, "✅ PDF отправлен!", get_main_keyboard())
-            else:
-                send_message(peer_id, "❌ Не удалось создать отчёт. Возможно, нет данных за этот день.", get_main_keyboard())
-        except Exception as e:
-            from utils.logger import logger
-            logger.error(f"Ошибка экспорта PDF: {e}", exc_info=True)
-            send_message(peer_id, f"❌ Ошибка создания отчёта: {e}", get_main_keyboard())
         return
 
     # --- Удаление записей ---
@@ -289,6 +279,45 @@ def route_payload(user_id, peer_id, payload_data):
         handle_onboarding(user_id, peer_id, cmd, payload_data.get('value'))
         return
 
+    # --- Экспорт PDF за конкретный день ---
+    if cmd == 'export_pdf':
+        if not require_profile(user_id, peer_id):
+            return
+        try:
+            date_start = datetime.strptime(payload_data['date_start'], '%Y-%m-%d').date()
+            date_end = datetime.strptime(payload_data['date_end'], '%Y-%m-%d').date()
+
+            filepath = generate_user_report_pdf(user_id, date_start, date_end)
+
+            if filepath:
+                from utils.messenger import send_document
+                period_text = date_start.strftime('%d.%m.%Y')
+                if date_start != date_end:
+                    period_text += f' — {date_end.strftime("%d.%m.%Y")}'
+
+                send_document(peer_id, filepath, f"📄 Отчёт за {period_text}")
+                send_message(peer_id, "✅ PDF отправлен!", get_main_keyboard())
+            else:
+                send_message(peer_id, "❌ Не удалось создать отчёт. Возможно, нет данных за этот период.", get_main_keyboard())
+        except Exception as e:
+            from utils.logger import logger
+            logger.error(f"Ошибка экспорта PDF: {e}", exc_info=True)
+            send_message(peer_id, "❌ Ошибка создания отчёта.", get_main_keyboard())
+        return
+
+    # --- Экспорт PDF за период (пользователь) ---
+    if cmd == 'export_pdf_period':
+        if not require_profile(user_id, peer_id):
+            return
+        user_states[user_id] = {'state': 'export_pdf_start'}
+        send_message(
+            peer_id,
+            "📅 Введите начальную дату периода в формате ДД.ММ или ДД.ММ.ГГГГ\n"
+            "(например: 01.07 или 01.07.2026)",
+            get_cancel_keyboard()
+        )
+        return
+
 
 def route_text(user_id, peer_id, text):
     """Обработка текстовых команд"""
@@ -337,6 +366,67 @@ def route_text(user_id, peer_id, text):
                 get_cancel_keyboard())
             return
 
+        # Экспорт PDF — ввод начальной даты
+        if state == 'export_pdf_start':
+            try:
+                d = _parse_date(text)
+                if d is None:
+                    send_message(peer_id, "❌ Неверный формат. Используйте ДД.ММ или ДД.ММ.ГГГГ", get_cancel_keyboard())
+                    return
+                if d > date.today():
+                    send_message(peer_id, "❌ Начальная дата не может быть в будущем.", get_cancel_keyboard())
+                    return
+                user_states[user_id]['date_start'] = d
+                user_states[user_id]['state'] = 'export_pdf_end'
+                send_message(
+                    peer_id,
+                    f"✅ Начальная дата: {d.strftime('%d.%m.%Y')}\n\n"
+                    "Теперь введите конечную дату периода (ДД.ММ или ДД.ММ.ГГГГ):",
+                    get_cancel_keyboard()
+                )
+            except Exception as e:
+                send_message(peer_id, "❌ Ошибка обработки даты.", get_cancel_keyboard())
+            return
+
+        # Экспорт PDF — ввод конечной даты
+        if state == 'export_pdf_end':
+            try:
+                d = _parse_date(text)
+                if d is None:
+                    send_message(peer_id, "❌ Неверный формат. Используйте ДД.ММ или ДД.ММ.ГГГГ", get_cancel_keyboard())
+                    return
+                if d > date.today():
+                    send_message(peer_id, "❌ Конечная дата не может быть в будущем.", get_cancel_keyboard())
+                    return
+
+                date_start = user_states[user_id]['date_start']
+                date_end = d
+
+                if date_start > date_end:
+                    date_start, date_end = date_end, date_start
+
+                # Генерируем PDF
+                filepath = generate_user_report_pdf(user_id, date_start, date_end)
+
+                # Очищаем состояние
+                if user_id in user_states:
+                    del user_states[user_id]
+
+                if filepath:
+                    from utils.messenger import send_document
+                    period_text = f"{date_start.strftime('%d.%m.%Y')} — {date_end.strftime('%d.%m.%Y')}"
+                    send_document(peer_id, filepath, f"📄 Отчёт за {period_text}")
+                    send_message(peer_id, "✅ PDF отправлен!", get_main_keyboard())
+                else:
+                    send_message(peer_id, "❌ Не удалось создать отчёт. Возможно, нет данных за этот период.", get_main_keyboard())
+            except Exception as e:
+                from utils.logger import logger
+                logger.error(f"Ошибка экспорта PDF за период: {e}", exc_info=True)
+                if user_id in user_states:
+                    del user_states[user_id]
+                send_message(peer_id, "❌ Ошибка создания отчёта.", get_main_keyboard())
+            return
+
     # Для остальных действий нужен профиль
     if not require_profile(user_id, peer_id):
         return
@@ -375,6 +465,62 @@ def route_admin_commands(user_id, peer_id, text):
                 send_message(peer_id, "❌ ID должен быть числом.", get_main_keyboard())
         return True
 
+    # --- Экспорт PDF (админ) ---
+    if text.lower().startswith('/pdf'):
+        parts = text.split()
+        if len(parts) < 2:
+            send_message(peer_id,
+                "Используйте:\n"
+                "/pdf <ID> — отчёт за сегодня\n"
+                "/pdf <ID> 01.07 — отчёт за конкретный день\n"
+                "/pdf <ID> 01.07 15.07 — отчёт за период\n\n"
+                "Например: /pdf 734594067 01.07 15.07",
+                get_main_keyboard())
+        else:
+            try:
+                target_user_id = int(parts[1])
+
+                if len(parts) == 2:
+                    # /pdf <ID> — за сегодня
+                    filepath = generate_admin_report_pdf(target_user_id)
+                    period_text = date.today().strftime('%d.%m.%Y')
+                elif len(parts) == 3:
+                    # /pdf <ID> <дата>
+                    d = datetime.strptime(parts[2], '%d.%m').date()
+                    if d.year == 1900:
+                        d = d.replace(year=date.today().year)
+                    filepath = generate_admin_report_pdf(target_user_id, d, d)
+                    period_text = d.strftime('%d.%m.%Y')
+                elif len(parts) >= 4:
+                    # /pdf <ID> <дата1> <дата2>
+                    d1 = datetime.strptime(parts[2], '%d.%m').date()
+                    d2 = datetime.strptime(parts[3], '%d.%m').date()
+                    if d1.year == 1900:
+                        d1 = d1.replace(year=date.today().year)
+                    if d2.year == 1900:
+                        d2 = d2.replace(year=date.today().year)
+                    if d1 > d2:
+                        d1, d2 = d2, d1
+                    filepath = generate_admin_report_pdf(target_user_id, d1, d2)
+                    period_text = f"{d1.strftime('%d.%m.%Y')} — {d2.strftime('%d.%m.%Y')}"
+                else:
+                    filepath = None
+                    period_text = ""
+
+                if filepath:
+                    from utils.messenger import send_document
+                    send_document(peer_id, filepath, f"📄 Отчёт по пользователю {target_user_id} за {period_text}")
+                    send_message(peer_id, "✅ PDF отправлен!", get_main_keyboard())
+                else:
+                    send_message(peer_id, "❌ Не удалось создать отчёт или нет данных.", get_main_keyboard())
+            except ValueError:
+                send_message(peer_id, "❌ Неверный формат. Используйте: /pdf <ID> [ДД.ММ] [ДД.ММ]", get_main_keyboard())
+            except Exception as e:
+                from utils.logger import logger
+                logger.error(f"Ошибка экспорта PDF админом: {e}", exc_info=True)
+                send_message(peer_id, "❌ Ошибка создания отчёта.", get_main_keyboard())
+        return True
+
     if text.lower() == '/admin':
         send_message(peer_id,
             "🔐 Админ-панель:\n\n"
@@ -382,6 +528,7 @@ def route_admin_commands(user_id, peer_id, text):
             "/week - Отчет за последние 7 дней\n"
             "/users - Список всех пользователей\n"
             "/report <ID> - Детальный отчёт\n"
+            "/pdf <ID> [дата] [дата] - Экспорт PDF\n"
             "/admin - Эта справка",
             get_main_keyboard())
         return True

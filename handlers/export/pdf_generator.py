@@ -154,8 +154,7 @@ def generate_user_report_pdf(user_id, date_start=None, date_end=None):
         avg_p = round(total_p / num_days, 1)
         avg_f = round(total_f / num_days, 1)
         avg_carb = round(total_carb / num_days, 1)
-        
-        days_active = len(set(l.date for l in logs))
+    
         
         pdf.set_font('DejaVu', 'B', 10)
         pdf.set_text_color(60, 60, 60)
@@ -192,14 +191,7 @@ def generate_user_report_pdf(user_id, date_start=None, date_end=None):
         pdf.set_font('DejaVu', 'B', 10)
         pdf.set_text_color(40, 40, 40)
         pdf.cell(0, 6, f'{avg_carb}г', 0, 1)
-        
-        pdf.ln(3)
-        pdf.set_font('DejaVu', '', 10)
-        pdf.set_text_color(80, 80, 80)
-        pdf.cell(10, 6, '', 0, 0)
-        pdf.cell(0, 6, f'Всего приёмов пищи: {len(logs)}', 0, 1)
-        pdf.cell(10, 6, '', 0, 0)
-        pdf.cell(0, 6, f'Дней активности: {days_active} из {num_days}', 0, 1)
+    
         
         # === Детализация по дням ===
         pdf.section_title('ДЕТАЛИЗАЦИЯ ПО ДНЯМ')
