@@ -18,6 +18,27 @@ def handle_search(user_id, peer_id, text, target_date=None):
             send_message(peer_id, "Не удалось определить название продукта.", get_main_keyboard())
             return
         
+        # ИСПРАВЛЕНИЕ: Проверка веса на разумный диапазон
+        if weight is not None:
+            if weight <= 0:
+                send_message(
+                    peer_id,
+                    "❌ Вес должен быть больше нуля.\n\n"
+                    "Попробуйте ещё раз, например: банан 150г",
+                    get_main_keyboard()
+                )
+                return
+            
+            if weight > 10000:
+                send_message(
+                    peer_id,
+                    "❌ Слишком большой вес! Максимум 10000г (10кг).\n"
+                    "Если вы действительно съели столько, разделите на несколько порций.\n\n"
+                    "Попробуйте ещё раз, например: банан 150г",
+                    get_main_keyboard()
+                )
+                return
+        
         # Проверка: если вес был указан, но не прошёл валидацию
         has_weight_in_text = bool(re.search(r'\d+(?:\.\d+)?\s*(?:г|гр|грамм|граммов|gram)', text, flags=re.IGNORECASE))
         if has_weight_in_text and weight is None:
@@ -50,7 +71,6 @@ def handle_search(user_id, peer_id, text, target_date=None):
         send_message(peer_id, msg, get_product_selection_keyboard(products))
     finally:
         session.close()
-
 
 def handle_selection(user_id, peer_id, product_name):
     """Обработка выбора продукта из списка"""
