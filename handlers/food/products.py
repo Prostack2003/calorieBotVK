@@ -62,7 +62,7 @@ def ask_add_date(user_id, peer_id):
     send_message(
         peer_id,
         "📅 За какую дату добавляем еду?\n\n"
-        "Нажмите одну из трех кнопок для выбора даты",
+        "💡 Или просто напишите продукт — добавится за сегодня.",
         get_date_selection_keyboard()
     )
 

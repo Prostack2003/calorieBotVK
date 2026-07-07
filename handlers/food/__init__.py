@@ -1,4 +1,5 @@
-from .search import handle_search, handle_selection, handle_selection_from_list, handle_weight
+from .selector import handle_search, handle_selection, handle_selection_from_list
+from .weight import handle_weight
 from .custom_add import (
     save_custom_product,
     confirm_save_custom_product,

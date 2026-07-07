@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, date
 from config import user_states
 from utils.messenger import send_message
 from keyboards import get_main_keyboard, get_cancel_keyboard
@@ -78,6 +78,22 @@ def handle_food_text(user_id, peer_id, text):
         return False
 
     state = user_states[user_id]['state']
+
+        # Если пользователь в состоянии выбора даты, но сразу пишет продукт
+    if state == 'ask_add_date':
+        from handlers.food import handle_search
+        today = date.today()
+        user_states[user_id] = {'state': 'adding_food', 'add_date': today}
+        
+        # Явно показываем, что добавляем за сегодня
+        send_message(
+            peer_id,
+            f"📅 Добавляем за сегодня ({today.strftime('%d.%m.%Y')})",
+            None  # Без клавиатуры, чтобы не мешать
+        )
+        
+        handle_search(user_id, peer_id, text, today)
+        return True
 
     if state == 'input_date':
         from handlers.food import handle_date_input

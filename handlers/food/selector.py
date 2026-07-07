@@ -1,12 +1,13 @@
 import re
 from config import user_states
-from database import SessionLocal
+from database import SessionLocal, UserProduct, GlobalProduct
 from utils.messenger import send_message
 from utils.fuzzy_search import search_products, extract_weight_from_text
 from keyboards import get_main_keyboard, get_cancel_keyboard, get_product_selection_keyboard
-from .log import save_log
+
 
 def handle_search(user_id, peer_id, text, target_date=None):
+    """Обработка поиска продукта"""
     session = SessionLocal()
     try:
         weight = extract_weight_from_text(text)
@@ -52,7 +53,10 @@ def handle_search(user_id, peer_id, text, target_date=None):
 
 
 def handle_selection(user_id, peer_id, product_name):
-    if user_id not in user_states: return
+    """Обработка выбора продукта из списка"""
+    if user_id not in user_states:
+        return
+    
     state = user_states[user_id]
     selected = next((p for p in state['products'] if p['name'] == product_name), None)
     
@@ -63,15 +67,18 @@ def handle_selection(user_id, peer_id, product_name):
     target_date = state.get('add_date')
     
     if state['weight']:
+        # Вес уже известен — сразу сохраняем
+        from .log import save_log
         save_log(user_id, peer_id, selected, state['weight'], target_date)
     else:
+        # Веса нет — переходим в состояние ввода веса
         user_states[user_id] = {'state': 'weight', 'product': selected, 'add_date': target_date}
         date_str = f" за {target_date.strftime('%d.%m.%Y')}" if target_date else ""
         send_message(peer_id, f"Выбрано: {selected['name']}{date_str}\nВведите вес в граммах:", get_cancel_keyboard())
 
+
 def handle_selection_from_list(user_id, peer_id, product_name):
-    from database import UserProduct, GlobalProduct
-    
+    """Альтернативный выбор продукта (через payload)"""
     session = SessionLocal()
     try:
         product = session.query(UserProduct).filter_by(user_id=user_id, name=product_name).first()
@@ -101,45 +108,3 @@ def handle_selection_from_list(user_id, peer_id, product_name):
         )
     finally:
         session.close()
-
-def handle_weight(user_id, peer_id, text):
-    if user_id not in user_states: return
-    try:
-        weight = float(text.strip())
-        if weight <= 0:
-            raise ValueError("weight_zero")
-        if weight > 10000:
-            send_message(
-                peer_id, 
-                "❌ Слишком большой вес! Максимум 10000г (10кг).\n"
-                "Если вы действительно съели столько, разделите на несколько порций.",
-                get_cancel_keyboard()
-            )
-            return
-        target_date = user_states[user_id].get('add_date')
-        save_log(user_id, peer_id, user_states[user_id]['product'], weight, target_date)
-    except ValueError as e:
-        if "weight_zero" in str(e):
-            send_message(peer_id, "❌ Вес должен быть больше нуля. Введите число (например: 150)", get_cancel_keyboard())
-        else:
-            send_message(peer_id, "❌ Введите число (например: 150)", get_cancel_keyboard())
-    if user_id not in user_states: return
-    try:
-        weight = float(text.strip())
-        if weight <= 0:
-            raise ValueError("Вес должен быть больше нуля")
-        if weight > 10000:  # Максимум 10 кг
-            send_message(
-                peer_id, 
-                "❌ Слишком большой вес! Максимум 10000г (10кг).\n"
-                "Если вы действительно съели столько, разделите на несколько порций.",
-                get_cancel_keyboard()
-            )
-            return
-        target_date = user_states[user_id].get('add_date')
-        save_log(user_id, peer_id, user_states[user_id]['product'], weight, target_date)
-    except ValueError as e:
-        if "больше нуля" in str(e):
-            send_message(peer_id, "❌ Вес должен быть больше нуля. Введите число (например: 150)", get_cancel_keyboard())
-        else:
-            send_message(peer_id, "❌ Введите число (например: 150)", get_cancel_keyboard())

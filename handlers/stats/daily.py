@@ -62,26 +62,22 @@ def get_daily_stats(user_id, target_date=None):
                 msg += f"🥑 Жиры: {f_pct}% ({total_f}/{round(user.daily_fats, 1)}г)\n"
                 msg += f"🍞 Углеводы: {c_pct}% ({total_carb}/{round(user.daily_carbs, 1)}г)\n"
         
-        # Блок 3: Список продуктов (табличный стиль)
-        msg += "\n━━━━━━━━━━━━━━━━━━━━━\n\n"
-        msg += f"📝 Добавлено ({len(logs)} приёмов):\n\n"
-        
-        # Табличный стиль
-        max_name_len = max(len(log.product_name) for log in logs)
-        max_name_len = min(max_name_len, 25)
-        
-        for i, log in enumerate(logs, 1):
-            name = log.product_name
-            if len(name) > 25:
-                name = name[:22] + "..."
-            
-            name_padded = name.ljust(max_name_len)
-            weight_str = f"{log.weight}г".rjust(6)
-            cal_str = f"{round(log.calories, 1)} ккал"
-            
-            msg += f"{i}. {name_padded} {weight_str} 🔥{cal_str}\n"
-        
-        msg += "\n━━━━━━━━━━━━━━━━━━━━━"
+            # Блок 3: Список продуктов (стабильная двухстрочная структура)
+                msg += "\n━━━━━━━━━━━━━━━━━━━━━\n\n"
+                msg += f"📝 Добавлено ({len(logs)} приёмов):\n\n"
+                
+                for i, log in enumerate(logs, 1):
+                    name = log.product_name
+                    # Обрезаем длинные названия до 35 символов
+                    if len(name) > 35:
+                        name = name[:32] + "..."
+                    
+                    # Строка 1: номер и название
+                    msg += f"{i}. {name}\n"
+                    # Строка 2: вес и калории с отступом
+                    msg += f"   ⚖️ {log.weight}г • 🔥 {round(log.calories, 1)} ккал\n"
+                
+                msg += "\n━━━━━━━━━━━━━━━━━━━━━"
         
         keyboard = get_stats_navigation_keyboard(target_date, has_logs=True)
         
