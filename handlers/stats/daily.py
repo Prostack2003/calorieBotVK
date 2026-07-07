@@ -87,26 +87,35 @@ def get_daily_stats(user_id, target_date=None):
 
 
 def get_daily_logs_for_deletion(user_id, target_date):
-    """Получить список записей дневника для удаления"""
+    """Показать нумерованный список записей для удаления"""
     session = SessionLocal()
     try:
         logs = session.query(DailyLog).filter_by(
             user_id=user_id,
             date=target_date
         ).order_by(DailyLog.created_at).all()
-        
+
         if not logs:
             return "🍽 Нет записей для удаления за этот день.", None
+
+        # Формируем нумерованный список
+        msg = f" Записи за {target_date.strftime('%d.%m.%Y')}:\n\n"
         
-        msg = f"🗑 Записи за {target_date.strftime('%d.%m.%Y')}:\n\n"
-        msg += "Нажмите на запись, чтобы удалить её.\n\n"
+        for i, log in enumerate(logs, 1):
+            # Обрезаем длинные названия
+            name = log.product_name
+            if len(name) > 30:
+                name = name[:27] + "..."
+            
+            msg += f"{i}. {name} — {log.weight}г ({round(log.calories, 1)} ккал)\n"
         
-        keyboard = get_delete_keyboard(logs)
-        
-        return msg, keyboard
+        msg += f"\n✏️ Напишите номер записи для удаления (1-{len(logs)})"
+        msg += "\nили «назад» для отмены."
+
+        # Возвращаем без клавиатуры — пользователь будет вводить номер
+        return msg, None
     finally:
         session.close()
-
 
 def get_delete_keyboard(logs):
     """Клавиатура удаления записей из дневника"""
@@ -219,3 +228,58 @@ def get_stats_navigation_keyboard(current_date, has_logs=True):
     }])
     
     return json.dumps({"one_time": True, "buttons": buttons}, ensure_ascii=False)
+
+def delete_log_by_number(user_id, peer_id, number_str, target_date):
+    """Удалить запись по номеру из списка"""
+    try:
+        number = int(number_str)
+    except ValueError:
+        from utils.messenger import send_message
+        from keyboards import get_main_keyboard
+        send_message(peer_id, "❌ Напишите число (номер записи) или «назад».", get_main_keyboard())
+        return False
+
+    session = SessionLocal()
+    try:
+        logs = session.query(DailyLog).filter_by(
+            user_id=user_id,
+            date=target_date
+        ).order_by(DailyLog.created_at).all()
+
+        if not logs:
+            from utils.messenger import send_message
+            from keyboards import get_main_keyboard
+            send_message(peer_id, "🍽 Записей больше нет.", get_main_keyboard())
+            return False
+
+        if number < 1 or number > len(logs):
+            from utils.messenger import send_message
+            from keyboards import get_main_keyboard
+            send_message(
+                peer_id,
+                f" Номер должен быть от 1 до {len(logs)}.\n\n"
+                "Или напишите «назад» для отмены.",
+                get_main_keyboard()
+            )
+            return False
+
+        # Удаляем запись
+        log_to_delete = logs[number - 1]
+        session.delete(log_to_delete)
+        session.commit()
+
+        from utils.logger import logger
+        logger.info(f"🗑️ Удалена запись #{number}: {log_to_delete.product_name} ({log_to_delete.weight}г)")
+
+        return True
+
+    except Exception as e:
+        session.rollback()
+        from utils.logger import logger
+        logger.error(f"❌ Ошибка удаления записи: {e}", exc_info=True)
+        from utils.messenger import send_message
+        from keyboards import get_main_keyboard
+        send_message(peer_id, "❌ Ошибка удаления.", get_main_keyboard())
+        return False
+    finally:
+        session.close()

@@ -3,7 +3,7 @@ from config import user_states
 from utils.messenger import send_message
 from keyboards import get_main_keyboard, get_cancel_keyboard
 from handlers.routes.utils import require_profile, send_result, parse_date
-
+from handlers.stats import get_daily_logs_for_deletion, delete_log_by_number
 
 def handle_stats_payload(user_id, peer_id, cmd, payload_data):
     """Обработка payload-команд статистики. Возвращает True если обработано."""
@@ -31,8 +31,18 @@ def handle_stats_payload(user_id, peer_id, cmd, payload_data):
             return True
         try:
             target_date = datetime.strptime(payload_data['date'], '%Y-%m-%d').date()
-            from handlers.stats import get_daily_logs_for_deletion
-            send_result(peer_id, get_daily_logs_for_deletion(user_id, target_date))
+            result = get_daily_logs_for_deletion(user_id, target_date)
+            
+            if result:
+                msg, keyboard = result
+                # Переходим в состояние удаления
+                user_states[user_id] = {
+                    'state': 'deleting',
+                    'delete_date': target_date
+                }
+                send_message(peer_id, msg, keyboard)
+            else:
+                send_message(peer_id, " Нет записей для удаления.", get_main_keyboard())
         except ValueError:
             send_message(peer_id, "❌ Неверный формат даты.", get_main_keyboard())
         return True
@@ -98,6 +108,35 @@ def handle_stats_text(user_id, peer_id, text):
         return False
 
     state = user_states[user_id]['state']
+    
+    if state == 'deleting':
+        target_date = user_states[user_id].get('delete_date')
+        
+        # Отмена удаления
+        if text.lower() in ('отмена', 'отменить', 'назад', 'cancel', 'back'):
+            del user_states[user_id]
+            send_message(peer_id, "Удаление отменено.", get_main_keyboard())
+            return True
+        
+        # Удаление по номеру
+        deleted = delete_log_by_number(user_id, peer_id, text, target_date)
+        
+        if deleted:
+            # Показываем обновлённый список
+            result = get_daily_logs_for_deletion(user_id, target_date)
+            
+            if result:
+                msg, keyboard = result
+                if msg:
+                    send_message(peer_id, f"✅ Удалено!\n\n{msg}", keyboard)
+                else:
+                    # Записей больше нет
+                    del user_states[user_id]
+                    send_message(peer_id, "✅ Удалено! Записей больше нет.", get_main_keyboard())
+            else:
+                del user_states[user_id]
+                send_message(peer_id, "✅ Удалено! Записей больше нет.", get_main_keyboard())
+        return True
 
     if state == 'export_pdf_start':
         d = parse_date(text)
