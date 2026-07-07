@@ -3,6 +3,9 @@ venv/
 env/
 ENV/
 
+# Конфигурация с секретами
+config.py    
+
 # Экспортированные PDF
 exports/
 
@@ -54,3 +57,6 @@ wheels/
 # OS
 .DS_Store
 Thumbs.db
+
+# Шрифты (слишком большие для GitHub)
+fonts/*.ttf
