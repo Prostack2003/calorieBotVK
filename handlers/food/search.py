@@ -3,7 +3,7 @@ from config import user_states
 from database import SessionLocal
 from utils.messenger import send_message
 from utils.fuzzy_search import search_products, extract_weight_from_text
-from keyboards.keyboards import get_main_keyboard, get_cancel_keyboard, get_product_selection_keyboard
+from keyboards import get_main_keyboard, get_cancel_keyboard, get_product_selection_keyboard
 from .log import save_log
 
 def handle_search(user_id, peer_id, text, target_date=None):

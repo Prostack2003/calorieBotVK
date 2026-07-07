@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta
 from config import user_states
 from database import SessionLocal, GlobalProduct, UserProduct
 from utils.messenger import send_message
-from keyboards.keyboards import get_main_keyboard, get_cancel_keyboard
+from keyboards import get_main_keyboard, get_cancel_keyboard
 
 def get_products_list(user_id):
     session = SessionLocal()

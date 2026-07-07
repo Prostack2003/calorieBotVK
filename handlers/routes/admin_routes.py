@@ -1,5 +1,5 @@
 from utils.messenger import send_message
-from keyboards.keyboards import get_main_keyboard
+from keyboards import get_main_keyboard
 from handlers.routes.utils import send_result
 from handlers.admin import (
     is_admin, get_all_users_stats, get_user_report,

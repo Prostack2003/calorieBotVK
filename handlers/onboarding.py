@@ -2,7 +2,7 @@ from config import user_states, vk
 from database import SessionLocal, User
 from utils.messenger import send_message
 from utils.calculator import calculate_norm
-from keyboards.keyboards import (
+from keyboards import (
     get_cancel_keyboard, get_gender_keyboard,
     get_activity_keyboard, get_goal_keyboard, get_main_keyboard
 )

@@ -2,7 +2,7 @@ from datetime import date
 from config import user_states
 from database import SessionLocal, DailyLog, User
 from utils.messenger import send_message, notify_admin
-from keyboards.keyboards import get_main_keyboard
+from keyboards import get_main_keyboard
 
 def save_log(user_id, peer_id, product, weight, target_date=None):
     if target_date is None:

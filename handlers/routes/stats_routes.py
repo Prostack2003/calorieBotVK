@@ -1,7 +1,7 @@
 from datetime import datetime, date
 from config import user_states
 from utils.messenger import send_message
-from keyboards.keyboards import get_main_keyboard, get_cancel_keyboard
+from keyboards import get_main_keyboard, get_cancel_keyboard
 from handlers.routes.utils import require_profile, send_result, parse_date
 
 

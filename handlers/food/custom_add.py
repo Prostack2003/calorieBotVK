@@ -1,7 +1,7 @@
 from config import user_states
 from database import SessionLocal, UserProduct
 from utils.messenger import send_message
-from keyboards.keyboards import (
+from keyboards import (
     get_main_keyboard,
     get_cancel_keyboard,
     get_confirm_kbju_keyboard

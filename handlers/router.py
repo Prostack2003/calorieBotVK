@@ -1,6 +1,6 @@
 from config import user_states
 from utils.messenger import send_message
-from keyboards.keyboards import get_main_keyboard
+from keyboards import get_main_keyboard
 from handlers.routes.admin_routes import handle_admin_text
 from handlers.routes.stats_routes import handle_stats_payload, handle_stats_text
 from handlers.routes.food_routes import handle_food_payload, handle_food_text

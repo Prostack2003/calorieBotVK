@@ -1,7 +1,7 @@
 from datetime import datetime, date
 from config import user_states
 from utils.messenger import send_message
-from keyboards.keyboards import get_main_keyboard, get_cancel_keyboard
+from keyboards import get_main_keyboard, get_cancel_keyboard
 from handlers.stats import get_or_create_user
 from handlers.onboarding import start_onboarding
 

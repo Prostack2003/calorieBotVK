@@ -1,7 +1,7 @@
 import json
 from database import SessionLocal, UserProduct, DailyLog
 from utils.messenger import send_message
-from keyboards.keyboards import (
+from keyboards import (
     get_main_keyboard,
     get_user_products_keyboard,
     get_confirm_delete_product_keyboard
