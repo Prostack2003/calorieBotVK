@@ -8,6 +8,10 @@ from handlers.routes.utils import require_profile
 def handle_food_payload(user_id, peer_id, cmd, payload_data):
     """Обработка payload-команд еды. Возвращает True если обработано."""
 
+    # ============================================
+    # Основные команды
+    # ============================================
+    
     if cmd == 'add':
         if not require_profile(user_id, peer_id):
             return True
@@ -35,12 +39,44 @@ def handle_food_payload(user_id, peer_id, cmd, payload_data):
         if not require_profile(user_id, peer_id):
             return True
         user_states[user_id] = {'state': 'input_date'}
-        send_message(peer_id, "Введите дату в формате ДД.ММ или ДД.ММ.ГГГГ (например: 05.07 или 05.07.2026):", get_cancel_keyboard())
+        send_message(
+            peer_id,
+            "Введите дату в формате ДД.ММ или ДД.ММ.ГГГГ (например: 05.07 или 05.07.2026):",
+            get_cancel_keyboard()
+        )
         return True
 
+    # ============================================
+    # Выбор продукта (старый формат)
+    # ============================================
+    
     if cmd == 'select':
         from handlers.food import handle_selection
         handle_selection(user_id, peer_id, payload_data['product'])
+        return True
+
+    # ============================================
+    # Выбор продукта по индексу (новый формат)
+    # ============================================
+    
+    if cmd == 'select_product':
+        idx = payload_data.get('idx')
+        
+        if idx is None or user_id not in user_states:
+            send_message(peer_id, "❌ Сессия истекла. Начните поиск заново.", get_main_keyboard())
+            return True
+        
+        state = user_states[user_id]
+        products = state.get('products', [])
+        
+        if idx < 0 or idx >= len(products):
+            send_message(peer_id, "❌ Продукт не найден.", get_main_keyboard())
+            return True
+        
+        selected_product = products[idx]
+        
+        from handlers.food import handle_selection
+        handle_selection(user_id, peer_id, selected_product['name'])
         return True
 
     if cmd == 'select_from_list':
@@ -48,6 +84,10 @@ def handle_food_payload(user_id, peer_id, cmd, payload_data):
         handle_selection_from_list(user_id, peer_id, payload_data['product_name'])
         return True
 
+    # ============================================
+    # Ручной ввод и добавление своего продукта
+    # ============================================
+    
     if cmd == 'manual_input':
         if not require_profile(user_id, peer_id):
             return True
@@ -69,6 +109,26 @@ def handle_food_payload(user_id, peer_id, cmd, payload_data):
         cancel_custom_product(user_id, peer_id)
         return True
 
+    # ============================================
+    # Новые команды: поиск в интернете и отмена
+    # ============================================
+    
+    if cmd == 'search_online':
+        from handlers.food.selector import handle_search_online
+        handle_search_online(user_id, peer_id)
+        return True
+
+    if cmd == 'ask_custom':
+        from handlers.food.selector import handle_ask_custom
+        handle_ask_custom(user_id, peer_id)
+        return True
+
+    if cmd == 'cancel':
+        if user_id in user_states:
+            del user_states[user_id]
+        send_message(peer_id, "Действие отменено.", get_main_keyboard())
+        return True
+
     return False
 
 
@@ -77,19 +137,18 @@ def handle_food_text(user_id, peer_id, text):
     if user_id not in user_states:
         return False
 
-    state = user_states[user_id]['state']
-
-        # Если пользователь в состоянии выбора даты, но сразу пишет продукт
+    state = user_states[user_id].get('state')
+    
+    # Если пользователь в состоянии выбора даты, но сразу пишет продукт
     if state == 'ask_add_date':
         from handlers.food import handle_search
         today = date.today()
         user_states[user_id] = {'state': 'adding_food', 'add_date': today}
         
-        # Явно показываем, что добавляем за сегодня
         send_message(
             peer_id,
             f"📅 Добавляем за сегодня ({today.strftime('%d.%m.%Y')})",
-            None  # Без клавиатуры, чтобы не мешать
+            None
         )
         
         handle_search(user_id, peer_id, text, today)
@@ -123,11 +182,11 @@ def handle_food_text(user_id, peer_id, text):
         from handlers.food import handle_selection
         if text.isdigit():
             n = int(text)
-            prods = user_states[user_id]['products']
+            prods = user_states[user_id].get('products', [])
             if 1 <= n <= len(prods):
                 handle_selection(user_id, peer_id, prods[n-1]['name'])
-        else:
-            handle_selection(user_id, peer_id, text)
+                return True
+        handle_selection(user_id, peer_id, text)
         return True
 
     if state == 'adding_food':

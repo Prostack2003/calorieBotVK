@@ -4,4 +4,4 @@ python-dotenv==1.0.1
 vk-api==11.9.9
 fpdf2
 requests
-fatsecret
+beautifulsoup4
