@@ -18,7 +18,7 @@ def handle_search(user_id, peer_id, text, target_date=None):
             send_message(peer_id, "Не удалось определить название продукта.", get_main_keyboard())
             return
         
-        # ИСПРАВЛЕНИЕ: Проверка веса на разумный диапазон
+        # Проверка веса на разумный диапазон
         if weight is not None:
             if weight <= 0:
                 send_message(
@@ -50,27 +50,66 @@ def handle_search(user_id, peer_id, text, target_date=None):
             )
             return
         
+        # ============================================
+        # ШАГ 1: Поиск в локальной базе
+        # ============================================
         products = search_products(clean_text, user_id, session, limit=5)
         
-        if not products:
-            send_message(peer_id, 
-                f"Не нашел '{clean_text}' в базе.\n\n"
-                f"Хотите добавить свой продукт? Напишите 'да' или название другого продукта.", 
-                get_main_keyboard())
-            user_states[user_id] = {'state': 'ask_custom', 'query': clean_text, 'weight': weight, 'add_date': target_date}
+        if products:
+            # Нашли в локальной базе — показываем результат
+            user_states[user_id] = {'state': 'selecting', 'products': products, 'weight': weight, 'add_date': target_date}
+            
+            date_str = f" за {target_date.strftime('%d.%m.%Y')}" if target_date else ""
+            msg = f"Найденные продукты{date_str}:\n\n"
+            for i, p in enumerate(products, 1):
+                msg += f"{i}. {p['name']} ({p['calories']} ккал/100г)\n"
+            msg += f"\nВес: {weight}г" if weight else "\nВес не указан."
+            
+            send_message(peer_id, msg, get_product_selection_keyboard(products))
             return
         
-        user_states[user_id] = {'state': 'selecting', 'products': products, 'weight': weight, 'add_date': target_date}
+        # ============================================
+        # ШАГ 2: Локально не нашли — ищем в FatSecret API
+        # ============================================
+        from utils.logger import logger
+        logger.info(f"🔍 Локальная база пуста для '{clean_text}', ищем в FatSecret...")
         
-        date_str = f" за {target_date.strftime('%d.%m.%Y')}" if target_date else ""
-        msg = f"Найденные продукты{date_str}:\n\n"
-        for i, p in enumerate(products, 1):
-            msg += f"{i}. {p['name']} ({p['calories']} ккал/100г)\n"
-        msg += f"\nВес: {weight}г" if weight else "\nВес не указан."
+        from utils.fatsecret_api import search_fatsecret
+        fs_products = search_fatsecret(clean_text, limit=5)
         
-        send_message(peer_id, msg, get_product_selection_keyboard(products))
+        if fs_products:
+            logger.info(f"✅ FatSecret: найдено {len(fs_products)} продуктов")
+            
+            user_states[user_id] = {
+                'state': 'selecting',
+                'products': fs_products,
+                'weight': weight,
+                'add_date': target_date
+            }
+            
+            date_str = f" за {target_date.strftime('%d.%m.%Y')}" if target_date else ""
+            msg = f"🍎 В локальной базе не нашёл, но нашёл в FatSecret ({len(fs_products)}):{date_str}\n\n"
+            for i, p in enumerate(fs_products, 1):
+                msg += f"{i}. {p['name']} ({p['calories']} ккал/100г)\n"
+            msg += f"\nВес: {weight}г" if weight else "\nВес не указан."
+            
+            send_message(peer_id, msg, get_product_selection_keyboard(fs_products))
+            return
+        
+        # ============================================
+        # ШАГ 3: Не нашли нигде — предлагаем добавить свой
+        # ============================================
+        logger.info(f"❌ FatSecret: ничего не найдено по запросу '{clean_text}'")
+        
+        send_message(peer_id, 
+            f"Не нашел '{clean_text}' ни в базе, ни в FatSecret.\n\n"
+            f"Хотите добавить свой продукт? Напишите 'да' или название другого продукта.", 
+            get_main_keyboard())
+        user_states[user_id] = {'state': 'ask_custom', 'query': clean_text, 'weight': weight, 'add_date': target_date}
+        
     finally:
         session.close()
+
 
 def handle_selection(user_id, peer_id, product_name):
     """Обработка выбора продукта из списка"""
